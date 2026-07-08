@@ -66,6 +66,19 @@ fn wstr(s: &str) -> Vec<u16> {
     OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
 }
 
+macro_rules! wfmt {
+    ($fmt:literal $(, $arg:expr)* $(,)?) => {{
+        let mut buf: [u16; 512] = [0u16; 512];
+        let fmt_w = $crate::win32::wide_from_str($fmt);
+        #[allow(unused_unsafe)]
+        unsafe {
+            $crate::win32::wsprintfW(buf.as_mut_ptr(), fmt_w.as_ptr(), $($arg),*);
+        }
+        let end = buf.iter().position(|&c| c == 0).unwrap_or(512);
+        String::from_utf16_lossy(&buf[..end])
+    }};
+}
+
 fn info_msg(owner: HWND, msg: &str) {
     let t = wstr(APP_TITLE);
     let m = wstr(msg);
@@ -96,12 +109,12 @@ fn window_title() -> String {
                 .unwrap_or(&state.current_path)
                 .to_string()
         };
-        format!(
-            "{}{} - {}",
-            if state.modified { "*" } else { "" },
-            name,
-            APP_TITLE
-        )
+        {
+            let star = if state.modified { wstr("*") } else { wstr("") };
+            let name_w = wstr(&name);
+            let title_w = wstr(APP_TITLE);
+            wfmt!("%s%s - %s", star.as_ptr(), name_w.as_ptr(), title_w.as_ptr())
+        }
     })
 }
 
@@ -243,7 +256,8 @@ fn prompt_save_changes(hwnd: HWND) -> bool {
         return true;
     }
 
-    let prompt = format!("Do you want to save changes to {}?", name);
+    let name_w = wstr(&name);
+    let prompt = wfmt!("Do you want to save changes to %s?", name_w.as_ptr());
     let p = wstr(&prompt);
     let t = wstr(APP_TITLE);
 
@@ -401,7 +415,7 @@ fn update_status_bar() {
             SendMessageW(state.hwnd_edit, EM_GETLINECOUNT, 0, 0)
         } as i32;
 
-        let text = format!("Ln {}, Col {}    Lines: {}", line, col, lines);
+        let text = wfmt!("Ln %d, Col %d    Lines: %d", line, col, lines);
         let w = wstr(&text);
         unsafe {
             SendMessageW(state.hwnd_status, SB_SETTEXT, 0, w.as_ptr() as isize);
@@ -637,7 +651,9 @@ fn insert_time_date(_hwnd: HWND) {
         let date_str = String::from_utf16_lossy(&date_buf[..date_end]);
         let time_str = String::from_utf16_lossy(&time_buf[..time_end]);
 
-        let stamp = format!("{} {}", time_str, date_str);
+        let time_w = wstr(&time_str);
+        let date_w = wstr(&date_str);
+        let stamp = wfmt!("%s %s", time_w.as_ptr(), date_w.as_ptr());
         let w = wstr(&stamp);
         unsafe {
             SendMessageW(
@@ -735,7 +751,8 @@ fn handle_find_replace(lpfr: isize) {
             }
         };
         let count = search::replace_all_occurrences(edit, &find_text, &replace_text, match_case);
-        let msg = format!("Replaced {} occurrence{}.", count, if count == 1 { "" } else { "s" });
+        let plural = if count == 1 { wstr("") } else { wstr("s") };
+        let msg = wfmt!("Replaced %d occurrence%s.", count, plural.as_ptr());
         info_msg(main, &msg);
         APP_STATE.with(|s| s.borrow_mut().modified = true);
         update_title(main);
@@ -1084,8 +1101,7 @@ pub fn run_app() -> i32 {
         let hinst = GetModuleHandleW(std::ptr::null());
         APP_HINST.with(|h| *h.borrow_mut() = hinst);
 
-        let find_msg_str = format!("{}\0", FINDMSGSTRING);
-        let fm_wide: Vec<u16> = OsStr::new(&find_msg_str).encode_wide().collect();
+        let fm_wide = wide_from_str(FINDMSGSTRING);
         let fm = RegisterWindowMessageW(fm_wide.as_ptr());
         APP_FIND_MSG.with(|m| *m.borrow_mut() = fm);
 

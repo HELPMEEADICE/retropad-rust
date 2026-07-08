@@ -5,5 +5,12 @@ edition = "2021"
 
 [dependencies]
 
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"
+opt-level = "s"
+
 [build-dependencies]
 embed-resource = "2"

@@ -404,6 +404,7 @@ extern "system" {
         lpDefaultChar: LPCWSTR,
         lpUsedDefaultChar: *mut BOOL,
     ) -> i32;
+    pub fn wsprintfW(lpOut: LPWSTR, lpFmt: LPCWSTR, ...) -> i32;
 }
 
 pub fn make_int_resource(id: u16) -> LPCWSTR {
