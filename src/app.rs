@@ -535,57 +535,59 @@ fn do_find_next(reverse: bool) {
 }
 
 fn do_select_font(hwnd: HWND) {
-    APP_STATE.with(|s| {
-        let mut state = s.borrow_mut();
-        let mut lf = LOGFONTW {
-            lfHeight: 0, lfWidth: 0, lfEscapement: 0, lfOrientation: 0,
-            lfWeight: 0, lfItalic: 0, lfUnderline: 0, lfStrikeOut: 0,
-            lfCharSet: 0, lfOutPrecision: 0, lfClipPrecision: 0,
-            lfQuality: 0, lfPitchAndFamily: 0, lfFaceName: [0u16; 32],
-        };
+    let old_hfont = APP_STATE.with(|s| s.borrow().hfont);
 
-        if state.hfont != 0 {
-            unsafe {
-                GetObjectW(
-                    state.hfont as HGDIOBJ,
-                    std::mem::size_of::<LOGFONTW>() as i32,
-                    &mut lf as *mut _ as *mut std::ffi::c_void,
-                );
-            }
-        } else {
-            unsafe {
-                SystemParametersInfoW(
-                    SPI_GETICONTITLELOGFONT,
-                    std::mem::size_of::<LOGFONTW>() as u32,
-                    &mut lf as *mut _ as *mut std::ffi::c_void,
-                    0,
-                );
-            }
+    let mut lf = LOGFONTW {
+        lfHeight: 0, lfWidth: 0, lfEscapement: 0, lfOrientation: 0,
+        lfWeight: 0, lfItalic: 0, lfUnderline: 0, lfStrikeOut: 0,
+        lfCharSet: 0, lfOutPrecision: 0, lfClipPrecision: 0,
+        lfQuality: 0, lfPitchAndFamily: 0, lfFaceName: [0u16; 32],
+    };
+
+    if old_hfont != 0 {
+        unsafe {
+            GetObjectW(
+                old_hfont as HGDIOBJ,
+                std::mem::size_of::<LOGFONTW>() as i32,
+                &mut lf as *mut _ as *mut std::ffi::c_void,
+            );
         }
+    } else {
+        unsafe {
+            SystemParametersInfoW(
+                SPI_GETICONTITLELOGFONT,
+                std::mem::size_of::<LOGFONTW>() as u32,
+                &mut lf as *mut _ as *mut std::ffi::c_void,
+                0,
+            );
+        }
+    }
 
-        let mut cf = CHOOSEFONTW {
-            lStructSize: std::mem::size_of::<CHOOSEFONTW>() as u32,
-            hwndOwner: hwnd,
-            hDC: 0,
-            lpLogFont: &mut lf,
-            iPointSize: 0,
-            Flags: CF_SCREENFONTS | CF_INITTOLOGFONTSTRUCT,
-            rgbColors: 0,
-            lCustData: 0,
-            lpfnHook: None,
-            lpTemplateName: std::ptr::null(),
-            hInstance: 0,
-            lpszStyle: std::ptr::null_mut(),
-            nFontType: 0,
-            ___MISSING_ALIGNMENT__: 0,
-            nSizeMin: 0,
-            nSizeMax: 0,
-        };
+    let mut cf = CHOOSEFONTW {
+        lStructSize: std::mem::size_of::<CHOOSEFONTW>() as u32,
+        hwndOwner: hwnd,
+        hDC: 0,
+        lpLogFont: &mut lf,
+        iPointSize: 0,
+        Flags: CF_SCREENFONTS | CF_INITTOLOGFONTSTRUCT,
+        rgbColors: 0,
+        lCustData: 0,
+        lpfnHook: None,
+        lpTemplateName: std::ptr::null(),
+        hInstance: 0,
+        lpszStyle: std::ptr::null_mut(),
+        nFontType: 0,
+        ___MISSING_ALIGNMENT__: 0,
+        nSizeMin: 0,
+        nSizeMax: 0,
+    };
 
-        let result = unsafe { ChooseFontW(&mut cf) };
-        if result != 0 {
-            let new_font = unsafe { CreateFontIndirectW(&lf) };
-            if new_font != 0 {
+    let result = unsafe { ChooseFontW(&mut cf) };
+    if result != 0 {
+        let new_font = unsafe { CreateFontIndirectW(&lf) };
+        if new_font != 0 {
+            APP_STATE.with(|s| {
+                let mut state = s.borrow_mut();
                 if state.hfont != 0 {
                     unsafe { DeleteObject(state.hfont as HGDIOBJ); }
                 }
@@ -593,10 +595,10 @@ fn do_select_font(hwnd: HWND) {
                 unsafe {
                     SendMessageW(state.hwnd_edit, WM_SETFONT, new_font as usize, 1);
                 }
-                update_layout(hwnd);
-            }
+            });
+            update_layout(hwnd);
         }
-    });
+    }
 }
 
 fn insert_time_date(_hwnd: HWND) {
