@@ -115,8 +115,9 @@ pub fn replace_all_occurrences(
         None => return 0,
     };
 
+    let nchars: Vec<char> = text.chars().collect();
     let haystack: Vec<char> = if match_case {
-        text.chars().collect()
+        nchars.clone()
     } else {
         text.to_lowercase().chars().collect()
     };
@@ -125,35 +126,30 @@ pub fn replace_all_occurrences(
     } else {
         needle.to_lowercase().chars().collect()
     };
+    let rchars: Vec<char> = replacement.chars().collect();
 
-    let mut positions: Vec<usize> = Vec::new();
+    let needle_len = needle_chars.len();
+    let mut result: Vec<char> = Vec::with_capacity(nchars.len());
+    let mut count: usize = 0;
+    let mut src_idx = 0;
     let mut i = 0;
-    while i + needle_chars.len() <= haystack.len() {
+
+    while i + needle_len <= haystack.len() {
         if haystack[i..].starts_with(&needle_chars) {
-            positions.push(i);
-            i += needle_chars.len();
+            result.extend_from_slice(&nchars[src_idx..i]);
+            result.extend_from_slice(&rchars);
+            src_idx = i + needle_len;
+            i += needle_len;
+            count += 1;
         } else {
             i += 1;
         }
     }
 
-    if positions.is_empty() {
+    if count == 0 {
         return 0;
     }
 
-    let count = positions.len();
-    let nchars: Vec<char> = text.chars().collect();
-    let rchars: Vec<char> = replacement.chars().collect();
-
-    let new_len = nchars.len() + count * (rchars.len().wrapping_sub(needle_chars.len()));
-    let mut result: Vec<char> = Vec::with_capacity(new_len);
-
-    let mut src_idx = 0;
-    for &pos in &positions {
-        result.extend_from_slice(&nchars[src_idx..pos]);
-        result.extend_from_slice(&rchars);
-        src_idx = pos + needle_chars.len();
-    }
     result.extend_from_slice(&nchars[src_idx..]);
 
     let result_str: String = result.into_iter().collect();

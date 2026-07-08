@@ -23,20 +23,10 @@ pub fn detect_encoding(data: &[u8]) -> TextEncoding {
     if data.len() >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF {
         return TextEncoding::Utf8;
     }
-    unsafe {
-        let len = MultiByteToWideChar(
-            CP_UTF8,
-            MB_ERR_INVALID_CHARS,
-            data.as_ptr(),
-            data.len() as i32,
-            std::ptr::null_mut(),
-            0,
-        );
-        if len > 0 {
-            TextEncoding::Utf8
-        } else {
-            TextEncoding::Ansi
-        }
+    if std::str::from_utf8(data).is_ok() {
+        TextEncoding::Utf8
+    } else {
+        TextEncoding::Ansi
     }
 }
 

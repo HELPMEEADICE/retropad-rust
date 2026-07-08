@@ -24,12 +24,14 @@ pub struct AppState {
     pub hwnd_status: HWND,
     pub hfont: HFONT,
     pub current_path: String,
+    pub cached_title: String,
     pub word_wrap: bool,
     pub status_visible: bool,
     pub status_before_wrap: bool,
     pub modified: bool,
     pub encoding: TextEncoding,
     pub find_flags: u32,
+    pub status_last_update: u32,
     pub hfind_dlg: HWND,
     pub hreplace_dlg: HWND,
     pub find_replace_data: Option<FindReplaceData>,
@@ -43,12 +45,14 @@ impl Default for AppState {
             hwnd_status: 0,
             hfont: 0,
             current_path: String::new(),
+            cached_title: format!("{UNTITLED_NAME} - {APP_TITLE}"),
             word_wrap: false,
             status_visible: true,
             status_before_wrap: true,
             modified: false,
             encoding: TextEncoding::Utf8,
             find_flags: FR_DOWN,
+            status_last_update: 0,
             hfind_dlg: 0,
             hreplace_dlg: 0,
             find_replace_data: None,
@@ -98,8 +102,12 @@ fn error_msg(owner: HWND, msg: &str) {
 }
 
 fn window_title() -> String {
+    APP_STATE.with(|s| s.borrow().cached_title.clone())
+}
+
+fn rebuild_title() {
     APP_STATE.with(|s| {
-        let state = s.borrow();
+        let mut state = s.borrow_mut();
         let name = if state.current_path.is_empty() {
             UNTITLED_NAME.to_string()
         } else {
@@ -109,13 +117,12 @@ fn window_title() -> String {
                 .unwrap_or(&state.current_path)
                 .to_string()
         };
-        {
-            let star = if state.modified { wstr("*") } else { wstr("") };
-            let name_w = wstr(&name);
-            let title_w = wstr(APP_TITLE);
-            wfmt!("%s%s - %s", star.as_ptr(), name_w.as_ptr(), title_w.as_ptr())
-        }
-    })
+        let star = if state.modified { wstr("*") } else { wstr("") };
+        let name_w = wstr(&name);
+        let title_w = wstr(APP_TITLE);
+        state.cached_title = wfmt!("%s%s - %s", star.as_ptr(), name_w.as_ptr(), title_w.as_ptr());
+        drop(state);
+    });
 }
 
 fn update_title(hwnd: HWND) {
@@ -288,6 +295,7 @@ fn load_document_from_path(hwnd: HWND, path: &str) -> bool {
         state.modified = false;
     });
 
+    rebuild_title();
     update_title(hwnd);
     true
 }
@@ -333,6 +341,7 @@ fn do_file_save(hwnd: HWND, save_as: bool) -> bool {
             unsafe { SendMessageW(state.hwnd_edit, EM_SETMODIFY, 0, 0); }
             state.modified = false;
         });
+        rebuild_title();
         update_title(hwnd);
     }
     ok
@@ -350,6 +359,7 @@ fn do_file_new(hwnd: HWND) {
         unsafe { SendMessageW(state.hwnd_edit, EM_SETMODIFY, 0, 0); }
         state.modified = false;
     });
+    rebuild_title();
     update_title(hwnd);
 }
 
@@ -398,10 +408,16 @@ fn set_word_wrap(hwnd: HWND, enabled: bool) {
 
 fn update_status_bar() {
     APP_STATE.with(|s| {
-        let state = s.borrow();
+        let mut state = s.borrow_mut();
         if !state.status_visible || state.hwnd_status == 0 {
             return;
         }
+
+        let now = unsafe { GetTickCount() };
+        if now.wrapping_sub(state.status_last_update) < 200 {
+            return;
+        }
+        state.status_last_update = now;
 
         let (sel_start, _) = search::get_edit_sel(state.hwnd_edit);
         let line = unsafe {
@@ -734,7 +750,8 @@ fn handle_find_replace(lpfr: isize) {
                     SendMessageW(edit, EM_REPLACESEL, TRUE as usize, w.as_ptr() as isize);
                     SendMessageW(edit, EM_SCROLLCARET, 0, 0);
                 }
-                APP_STATE.with(|s| s.borrow_mut().modified = true);
+                APP_STATE.with(|s| { let mut state = s.borrow_mut(); state.modified = true; });
+                rebuild_title();
                 update_title(main);
             }
             None => info_msg(main, "Cannot find the text."),
@@ -754,7 +771,8 @@ fn handle_find_replace(lpfr: isize) {
         let plural = if count == 1 { wstr("") } else { wstr("s") };
         let msg = wfmt!("Replaced %d occurrence%s.", count, plural.as_ptr());
         info_msg(main, &msg);
-        APP_STATE.with(|s| s.borrow_mut().modified = true);
+        APP_STATE.with(|s| { let mut state = s.borrow_mut(); state.modified = true; });
+        rebuild_title();
         update_title(main);
     }
 }
@@ -1065,8 +1083,16 @@ unsafe extern "system" fn main_wnd_proc(
             if ctrl_hwnd == edit {
                 if notification == EN_CHANGE {
                     let modified = unsafe { SendMessageW(edit, EM_GETMODIFY, 0, 0) != 0 };
-                    APP_STATE.with(|s| s.borrow_mut().modified = modified);
-                    update_title(hwnd);
+                    let was_modified = APP_STATE.with(|s| {
+                        let mut state = s.borrow_mut();
+                        let old = state.modified;
+                        state.modified = modified;
+                        old
+                    });
+                    if modified != was_modified {
+                        rebuild_title();
+                        update_title(hwnd);
+                    }
                     update_status_bar();
                     return 0;
                 } else if notification == 0x0400 { // EN_UPDATE
@@ -1097,49 +1123,49 @@ unsafe extern "system" fn main_wnd_proc(
 }
 
 pub fn run_app() -> i32 {
-    unsafe {
-        let hinst = GetModuleHandleW(std::ptr::null());
-        APP_HINST.with(|h| *h.borrow_mut() = hinst);
+    let hinst = unsafe { GetModuleHandleW(std::ptr::null()) };
+    APP_HINST.with(|h| *h.borrow_mut() = hinst);
 
-        let fm_wide = wide_from_str(FINDMSGSTRING);
-        let fm = RegisterWindowMessageW(fm_wide.as_ptr());
-        APP_FIND_MSG.with(|m| *m.borrow_mut() = fm);
+    let fm_wide = wide_from_str(FINDMSGSTRING);
+    let fm = unsafe { RegisterWindowMessageW(fm_wide.as_ptr()) };
+    APP_FIND_MSG.with(|m| *m.borrow_mut() = fm);
 
-        let class_name = wstr("RETROPAD_WINDOW");
-        let icon = LoadIconW(hinst, make_int_resource(IDI_RETROPAD));
+    let class_name = wstr("RETROPAD_WINDOW");
+    let icon = unsafe { LoadIconW(hinst, make_int_resource(IDI_RETROPAD)) };
 
-        let wc = WNDCLASSEXW {
-            cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
-            style: CS_HREDRAW | CS_VREDRAW,
-            lpfnWndProc: Some(main_wnd_proc),
-            cbClsExtra: 0,
-            cbWndExtra: 0,
-            hInstance: hinst,
-            hIcon: icon,
-            hCursor: LoadCursorW(0, IDC_IBEAM),
-            hbrBackground: (COLOR_WINDOW + 1) as isize,
-            lpszMenuName: make_int_resource(IDC_RETROPAD),
-            lpszClassName: class_name.as_ptr(),
-            hIconSm: icon,
-        };
+    let wc = WNDCLASSEXW {
+        cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+        style: CS_HREDRAW | CS_VREDRAW,
+        lpfnWndProc: Some(main_wnd_proc),
+        cbClsExtra: 0,
+        cbWndExtra: 0,
+        hInstance: hinst,
+        hIcon: icon,
+        hCursor: unsafe { LoadCursorW(0, IDC_IBEAM) },
+        hbrBackground: (COLOR_WINDOW + 1) as isize,
+        lpszMenuName: make_int_resource(IDC_RETROPAD),
+        lpszClassName: class_name.as_ptr(),
+        hIconSm: icon,
+    };
 
-        if RegisterClassExW(&wc) == 0 {
-            error_msg(0, "Failed to register window class.");
-            return 0;
-        }
+    if unsafe { RegisterClassExW(&wc) } == 0 {
+        error_msg(0, "Failed to register window class.");
+        return 0;
+    }
 
-        APP_STATE.with(|s| {
-            let mut state = s.borrow_mut();
-            state.word_wrap = false;
-            state.status_visible = true;
-            state.status_before_wrap = true;
-            state.encoding = TextEncoding::Utf8;
-            state.find_flags = FR_DOWN;
-        });
+    APP_STATE.with(|s| {
+        let mut state = s.borrow_mut();
+        state.word_wrap = false;
+        state.status_visible = true;
+        state.status_before_wrap = true;
+        state.encoding = TextEncoding::Utf8;
+        state.find_flags = FR_DOWN;
+    });
 
-        let title = wstr(APP_TITLE);
+    let title = wstr(APP_TITLE);
 
-        let hwnd = CreateWindowExW(
+    let hwnd = unsafe {
+        CreateWindowExW(
             0,
             class_name.as_ptr(),
             title.as_ptr(),
@@ -1152,36 +1178,40 @@ pub fn run_app() -> i32 {
             0,
             hinst,
             std::ptr::null(),
-        );
+        )
+    };
 
-        if hwnd == 0 {
-            error_msg(0, "Failed to create main window.");
-            return 0;
-        }
+    if hwnd == 0 {
+        error_msg(0, "Failed to create main window.");
+        return 0;
+    }
 
-        APP_STATE.with(|s| s.borrow_mut().hwnd_main = hwnd);
+    APP_STATE.with(|s| s.borrow_mut().hwnd_main = hwnd);
 
+    unsafe {
         ShowWindow(hwnd, SW_SHOW);
         UpdateWindow(hwnd);
+    }
 
-        let accel = LoadAcceleratorsW(hinst, make_int_resource(IDC_RETROPAD));
+    let accel = unsafe { LoadAcceleratorsW(hinst, make_int_resource(IDC_RETROPAD)) };
 
-        let mut msg: MSG = MSG {
-            hwnd: 0, message: 0, wParam: 0, lParam: 0,
-            time: 0, pt: POINT { x: 0, y: 0 },
-        };
+    let mut msg: MSG = MSG {
+        hwnd: 0, message: 0, wParam: 0, lParam: 0,
+        time: 0, pt: POINT { x: 0, y: 0 },
+    };
 
-        loop {
-            let ret = GetMessageW(&mut msg, 0, 0, 0);
-            if ret <= 0 {
-                break;
-            }
-            if accel == 0 || TranslateAcceleratorW(hwnd, accel, &msg) == 0 {
+    loop {
+        let ret = unsafe { GetMessageW(&mut msg, 0, 0, 0) };
+        if ret <= 0 {
+            break;
+        }
+        if accel == 0 || unsafe { TranslateAcceleratorW(hwnd, accel, &msg) } == 0 {
+            unsafe {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
         }
-
-        msg.wParam as i32
     }
+
+    msg.wParam as i32
 }
