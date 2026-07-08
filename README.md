@@ -1,41 +1,27 @@
 # retropad
 
-A Petzold-style Win32 Notepad clone written in mostly plain C. It keeps the classic menus, accelerators, word wrap toggle, status bar, find/replace, font picker, time/date insertion, and BOM-aware load/save. Printing is intentionally omitted.
+A Petzold-style Win32 Notepad clone rewritten in Rust. It keeps the classic menus, accelerators, word wrap toggle, status bar, find/replace, font picker, time/date insertion, and BOM-aware load/save. Printing is intentionally omitted.
 
 ## Prerequisites (Windows)
-- Git
-- Visual Studio 2022 (or Build Tools) with the "Desktop development with C++" workload
-- Use a "x64 Native Tools Command Prompt for VS 2022" (or any Developer Command Prompt) so `cl`, `rc`, and `nmake` are on your `PATH`.
+- [Rust](https://www.rust-lang.org/tools/install) (MSVC or GNU toolchain)
+- The Rust toolchain must be able to find `rc.exe` (resource compiler) for embedding the icon/menu resources. If using the GNU toolchain, `windres` is needed.
 
-Optional: MinGW-w64 for `make` + `gcc` (a separate POSIX-style `Makefile` is included).
+## Build
 
-## Get the code
 ```bat
-git clone https://github.com/your/repo.git retropad
-cd retropad
+cargo build --release
 ```
 
-## Build with MSVC (`nmake`)
-From a Developer Command Prompt:
-```bat
-nmake /f makefile
-```
-This runs `rc` then `cl` and produces `retropad.exe` in the repo root. Clean with:
-```bat
-nmake /f makefile clean
-```
+The binary will be at `target\release\retropad.exe`. Clean with:
 
-## Build with MinGW (optional)
-If you have `gcc`, `windres`, and `make` on PATH:
-```bash
-make
+```bat
+cargo clean
 ```
-Artifacts end up in the repo root (`retropad.exe`, object files, and `retropad.res`). Clean with `make clean`.
 
 ## Run
-Double-click `retropad.exe` or start from a prompt:
+
 ```bat
-.\retropad.exe
+target\release\retropad.exe
 ```
 
 ## Features & notes
@@ -44,19 +30,18 @@ Double-click `retropad.exe` or start from a prompt:
 - Find/Replace dialogs (standard `FINDMSGSTRING`), Go To (disabled when word wrap is on).
 - Font picker (ChooseFont), time/date insertion, drag-and-drop to open files.
 - File I/O: detects UTF-8/UTF-16 BOMs, falls back to UTF-8/ANSI heuristic; saves with UTF-8 BOM by default.
-- Printing/page setup menu items show a “not implemented” notice by design.
+- Printing/page setup menu items show a "not implemented" notice by design.
 - Icon: linked as the main app icon from `res/retropad.ico` via `retropad.rc`.
 
 ## Project layout
-- `retropad.c` — WinMain, window proc, UI logic, find/replace, menus, layout.
-- `file_io.c/.h` — file open/save dialogs and encoding-aware load/save helpers.
-- `resource.h` — resource IDs.
-- `retropad.rc` — menus, accelerators, dialogs, version info, icon.
-- `res/retropad.ico` — application icon.
-- `makefile` — MSVC `nmake` build script.
-- `Makefile` — MinGW/GNU make build script.
-
-## Common build hiccups
-- If `nmake` is missing, use a Developer Command Prompt (it sets up `PATH`).
-- If you see RC4204 warnings about ASCII/virtual keys, they’re benign and come from control-key accelerator lines.
-- If `rc`/`cl` aren’t found, rerun `vcvarsall.bat` or reopen the Developer Command Prompt.
+- `src/main.rs` — entry point
+- `src/win32.rs` — Win32 FFI declarations and constants
+- `src/app.rs` — window proc, UI logic, menus, find/replace, layout
+- `src/file_io.rs` — file open/save dialogs and encoding-aware load/save
+- `src/search.rs` — find/replace/replace-all string logic
+- `src/resource_ids.rs` — resource ID constants (mirrors `resource.h`)
+- `retropad.rc` — menus, accelerators, dialogs, version info, icon
+- `resource.h` — resource IDs (C header, consumed by `retropad.rc`)
+- `res/retropad.ico` — application icon
+- `build.rs` — compile resources, link system libraries
+- `Cargo.toml` — Rust project manifest

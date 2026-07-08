@@ -1,0 +1,9 @@
+[package]
+name = "retropad"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+
+[build-dependencies]
+embed-resource = "2"
