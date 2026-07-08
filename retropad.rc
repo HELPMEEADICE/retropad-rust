@@ -85,7 +85,7 @@ STYLE DS_MODALFRAME | WS_CAPTION | WS_SYSMENU
 CAPTION "About retropad"
 FONT 8, "MS Shell Dlg"
 BEGIN
-    LTEXT "retropad\nA Petzold-style Notepad clone.\nWin32 / C implementation.", -1, 12, 12, 176, 32
+    LTEXT "retropad\nA Petzold-style Notepad clone.\nWin32 / Rust implementation.", -1, 12, 12, 176, 32
     LTEXT "© 2025", -1, 12, 48, 60, 10
     DEFPUSHBUTTON "OK", IDOK, 74, 64, 52, 14
 END
